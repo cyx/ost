@@ -42,6 +42,15 @@ scope do
     assert_equal ["1"], results
   end
 
+  test "cleans up the backup queue when no errors" do |redis|
+    enqueue(1)
+
+    ost do |item|
+    end
+
+    assert ! redis.exists("ost:events:%s:backup" % Process.pid)
+  end
+
   test "pushes to a backup queue" do |redis|
     enqueue(1)
 
