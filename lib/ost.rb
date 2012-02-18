@@ -21,22 +21,18 @@ module Ost
       loop do
         break if @stopping
 
-        _, item = redis.brpop(ns, TIMEOUT)
+        backup = ns[Process.pid][:backup]
+
+        item = redis.brpoplpush(ns, backup, TIMEOUT)
+
         next if item.nil? or item.empty?
 
         begin
-          block.call(item)
-        rescue Exception => e
-          error = "#{Time.now} #{ns[item]} => #{e.inspect}"
-
-          redis.rpush   ns[:errors], error
-          redis.publish ns[:errors], error
+          yield item
+        ensure
+          backup.del
         end
       end
-    end
-
-    def errors
-      redis.lrange ns[:errors], 0, -1
     end
 
     def stop

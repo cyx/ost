@@ -42,44 +42,33 @@ scope do
     assert_equal ["1"], results
   end
 
-  test "add failures to special lists" do |redis|
+  test "pushes to a backup queue" do |redis|
     enqueue(1)
 
-    ost do |item|
-      raise "Wrong answer"
-    end
+    # Let's simulate a server crash by making
+    # String#empty? raise.
 
-    assert_equal 0, redis.llen("ost:events")
-    assert_equal 1, redis.llen("ost:events:errors")
+    class String
+      alias :_empty? :empty?
 
-    assert redis.rpop("ost:events:errors").match(/ost:events:1 => #<RuntimeError: Wrong answer/)
-  end
-
-  test "publish the error to a specific channel" do |redis|
-    enqueue(1)
-    results = []
-
-    t1 = Thread.new do
-      redis.subscribe("ost:events:errors") do |on|
-        on.message do |channel, message|
-          if message[/ost:events:1 => #<RuntimeError: Wrong answer/]
-            results << message
-            redis.unsubscribe
-          end
-        end
+      def empty?
+        raise RuntimeError
       end
     end
 
-    ost do |item|
-      raise "Wrong answer"
+    begin
+      ost do |item|
+      end
+    rescue
     end
 
-    t1.join
+    # Now let's put it back.
+    class String
+      remove_method :empty?
+      alias :empty? :_empty?
+    end
 
-    assert_equal 0, redis.llen("ost:events")
-    assert_equal 1, redis.llen("ost:events:errors")
-
-    assert results.pop.match(/ost:events:1 => #<RuntimeError: Wrong answer/)
+    assert_equal ["1"], redis.lrange("ost:events:%s:backup" % Process.pid, 0, -1)
   end
 
   test "halt processing a queue" do
